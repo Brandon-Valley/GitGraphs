@@ -2,55 +2,45 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#f4f0e8">
-  <title>GitStock User V6</title>
-  <meta http-equiv="refresh" content="0; url=https://brandon-valley.github.io/gitstock-user/?v=6">
+  <title>GitGraphs V8</title>
   <style>
-    * { box-sizing: border-box; }
-    html, body { min-height: 100%; }
-    body {
-      margin: 0;
-      display: grid;
-      place-items: center;
-      padding: 24px;
-      background: radial-gradient(circle at 20% 5%, #fff 0, transparent 32rem), linear-gradient(#f4f0e8, #eee8de);
-      color: #141414;
-      font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      text-align: center;
-    }
-    main {
-      width: min(520px, 100%);
-      padding: 30px;
-      border: 1px solid rgba(20,20,20,.16);
-      border-radius: 28px;
-      background: rgba(255,255,255,.72);
-      box-shadow: 0 24px 80px rgba(37,31,24,.16);
-    }
-    .brand { font-size: 25px; font-weight: 900; letter-spacing: -.04em; }
-    .badge { display: inline-block; margin-left: 8px; padding: 6px 9px; border-radius: 999px; background: #141414; color: #fff; font-size: 10px; letter-spacing: .07em; vertical-align: middle; }
-    h1 { margin: 26px 0 0; font-size: clamp(36px, 11vw, 58px); line-height: .96; letter-spacing: -.065em; }
-    p { margin: 20px auto 0; max-width: 430px; color: #6d6a63; font-size: 17px; line-height: 1.5; }
-    a { display: flex; align-items: center; justify-content: center; min-height: 58px; margin-top: 26px; border-radius: 18px; background: #141414; color: #fff; font-size: 18px; font-weight: 850; text-decoration: none; box-shadow: 0 12px 30px rgba(20,20,20,.18); }
-    small { display: block; margin-top: 14px; color: #6d6a63; line-height: 1.4; }
+    html,body{margin:0;min-height:100%;font-family:Inter,system-ui,sans-serif;background:#f4f0e8;color:#141414}
+    body{display:grid;place-items:center;background:radial-gradient(circle at 18% 5%,#fff,transparent 32rem),linear-gradient(#f4f0e8,#eee8de)}
+    main{width:min(440px,calc(100% - 32px));text-align:center}
+    h1{margin:0;font-size:30px;letter-spacing:-.05em}
+    p{color:#6d6a63;line-height:1.5}
+    .badge{display:inline-block;margin-left:7px;padding:6px 9px;border-radius:999px;background:#141414;color:#fff;font-size:10px;letter-spacing:.08em;vertical-align:middle}
+    .track{height:6px;margin-top:20px;overflow:hidden;border-radius:99px;background:#14141418}
+    .bar{width:45%;height:100%;border-radius:99px;background:#141414;animation:move 1s ease-in-out infinite alternate}
+    @keyframes move{to{transform:translateX(122%)}}
   </style>
-  <script>
-    (function () {
-      var target = "https://brandon-valley.github.io/gitstock-user/?v=6";
-      try { window.location.replace(target); } catch (error) {}
-      window.setTimeout(function () {
-        try { window.location.href = target; } catch (error) {}
-      }, 250);
-    }());
-  </script>
 </head>
 <body>
   <main>
-    <div class="brand">GitStock User <span class="badge">V6 LIVE</span></div>
-    <h1>Opening the secure app</h1>
-    <p>Android blocks GitHub requests from downloaded <code>content://</code> pages. This file opens the same app over HTTPS, where live GitHub data works.</p>
-    <a href="https://brandon-valley.github.io/gitstock-user/?v=6">Open GitStock User</a>
-    <small>If Android does not move automatically, tap the button once.</small>
+    <h1>GitGraphs <span class="badge">V8</span></h1>
+    <p id="status">Loading the complete app...</p>
+    <div class="track"><div class="bar"></div></div>
   </main>
+  <script>
+    const parts=[
+      "v8/p00.txt","v8/p01.txt","v8/p02.txt","v8/p03.txt","v8/p04.txt","v8/p05.txt","v8/p06.txt","v8/p07.txt",
+      "v8/p08a.txt","v8/p08b.txt","v8/p09.txt","v8/p10.txt","v8/p11.txt","v8/p12.txt"
+    ];
+    Promise.all(parts.map((url,index)=>fetch(url+"?build=8",{cache:"no-store"}).then(response=>{
+      if(!response.ok) throw new Error("part "+(index+1)+" returned "+response.status);
+      return response.text();
+    }))).then(chunks=>{
+      const html=chunks.join("");
+      if(!html.startsWith("<!doctype html>")||!html.endsWith("</html>\n")) throw new Error("assembled app did not pass its integrity check");
+      document.open();
+      document.write(html);
+      document.close();
+    }).catch(error=>{
+      document.getElementById("status").textContent="The app could not finish loading: "+error.message+". Refresh this page.";
+      console.error(error);
+    });
+  </script>
 </body>
 </html>
