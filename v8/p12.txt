@@ -1,0 +1,2 @@
+e;E.canvas.onmousemove=tooltip;E.canvas.onmouseleave=()=>E.tip.classList.remove("on");E.canvas.addEventListener("touchstart",tooltip,{passive:true});E.canvas.addEventListener("touchmove",tooltip,{passive:true});E.canvas.addEventListener("touchend",()=>setTimeout(()=>E.tip.classList.remove("on"),1200));onresize=resize;const first=decodeURIComponent(location.hash.slice(1));if(first)user(first);else E.user.focus();
+</script></body></html>
