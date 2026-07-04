@@ -1,1 +1,131 @@
-async function requestGitHub(path) { const response = await fetch('https://api.github.com' + path, { method: 'GET', mode: 'cors', credentials: 'omit', cache: 'no-store' }); const body = await response.json(); if (!response.ok) { const error = new Error(body && body.message ? body.message : 'GitHub returned ' + response.status); error.status = response.status; throw error; } return body; }
+let gitGraphsTransport = null;
+
+function withTimeout(promise, milliseconds) {
+  return Promise.race([
+    promise,
+    new Promise((resolve, reject) => setTimeout(() => reject(new Error("Request timed out")), milliseconds))
+  ]);
+}
+
+async function parseJsonResponse(response) {
+  const text = await response.text();
+  let body = null;
+  try {
+    body = text ? JSON.parse(text) : null;
+  } catch (error) {
+    throw new Error("The data service returned an unreadable response");
+  }
+  if (!response.ok) {
+    const error = new Error(body && body.message ? body.message : "Request returned " + response.status);
+    error.status = response.status;
+    throw error;
+  }
+  return body;
+}
+
+async function directGitHub(target) {
+  return parseJsonResponse(await withTimeout(fetch(target, {
+    method: "GET",
+    mode: "cors",
+    credentials: "omit",
+    cache: "no-store"
+  }), 12000));
+}
+
+function githubJsonp(target) {
+  return new Promise((resolve, reject) => {
+    const callbackName = "gitGraphsCallback" + Date.now() + Math.random().toString(36).slice(2);
+    const script = document.createElement("script");
+    const timeout = setTimeout(() => finish(new Error("GitHub callback timed out")), 12000);
+    let complete = false;
+
+    function cleanup() {
+      clearTimeout(timeout);
+      script.remove();
+      try { delete window[callbackName]; } catch (error) { window[callbackName] = undefined; }
+    }
+
+    function finish(error, value) {
+      if (complete) return;
+      complete = true;
+      cleanup();
+      if (error) reject(error); else resolve(value);
+    }
+
+    window[callbackName] = payload => {
+      const status = Number(payload && payload.meta && payload.meta.status || 200);
+      const data = payload ? payload.data : null;
+      if (status < 200 || status >= 300) {
+        const error = new Error(data && data.message ? data.message : "GitHub returned " + status);
+        error.status = status;
+        finish(error);
+      } else {
+        finish(null, data);
+      }
+    };
+
+    script.onerror = () => finish(new Error("GitHub callback was blocked"));
+    script.src = target + (target.includes("?") ? "&" : "?") + "callback=" + encodeURIComponent(callbackName) + "&_=" + Date.now();
+    document.head.appendChild(script);
+  });
+}
+
+async function allOrigins(target) {
+  return parseJsonResponse(await withTimeout(fetch("https://api.allorigins.win/raw?url=" + encodeURIComponent(target), {
+    method: "GET",
+    mode: "cors",
+    credentials: "omit",
+    cache: "no-store"
+  }), 15000));
+}
+
+async function corsProxyIo(target) {
+  return parseJsonResponse(await withTimeout(fetch("https://corsproxy.io/?url=" + encodeURIComponent(target), {
+    method: "GET",
+    mode: "cors",
+    credentials: "omit",
+    cache: "no-store"
+  }), 15000));
+}
+
+async function isomorphicGitProxy(target) {
+  return parseJsonResponse(await withTimeout(fetch("https://cors.isomorphic-git.org/" + target, {
+    method: "GET",
+    mode: "cors",
+    credentials: "omit",
+    cache: "no-store"
+  }), 15000));
+}
+
+const gitGraphsTransports = [
+  ["direct", directGitHub],
+  ["jsonp", githubJsonp],
+  ["allorigins", allOrigins],
+  ["corsproxy", corsProxyIo],
+  ["isomorphic", isomorphicGitProxy]
+];
+
+async function requestGitHub(path) {
+  const target = "https://api.github.com" + path;
+  const ordered = gitGraphsTransport
+    ? gitGraphsTransports.slice().sort((a, b) => a[0] === gitGraphsTransport ? -1 : b[0] === gitGraphsTransport ? 1 : 0)
+    : gitGraphsTransports;
+  const failures = [];
+
+  for (const [name, transport] of ordered) {
+    try {
+      const data = await transport(target);
+      gitGraphsTransport = name;
+      window.gitGraphsWorkingTransport = name;
+      return data;
+    } catch (error) {
+      failures.push(name + ": " + (error && error.message ? error.message : "failed"));
+      if (error && error.status && error.status !== 403 && error.status !== 429) throw error;
+      if (gitGraphsTransport === name) gitGraphsTransport = null;
+    }
+  }
+
+  const error = new Error("All GitHub connection methods failed. " + failures.join(" | "));
+  error.transportFailures = failures;
+  throw error;
+}
