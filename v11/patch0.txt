@@ -1,0 +1,123 @@
+// GitGraphs V11 Daily timeline upgrade.
+document.title = "GitGraphs V11 Daily";
+const badge = document.querySelector(".badge");
+if (badge) badge.textContent = "V11 DAILY";
+const footer = document.querySelector(".foot");
+if (footer) footer.textContent = "GitGraphs V11 Daily. Every calendar day is represented; public commit search may be capped by GitHub.";
+
+const dailyStyle = document.createElement("style");
+dailyStyle.textContent = `
+.detailbar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid #14141416}
+.detailcopy{min-width:220px}.detailcopy b{display:block;font-size:12px}.detailcopy span{display:block;margin-top:3px;color:var(--m);font-size:11px;line-height:1.35}
+.detailactions{display:flex;align-items:center;gap:7px;flex-wrap:wrap}.zooms .tab{font-size:11px;padding:0 10px}
+.chart{overflow-x:auto!important;overflow-y:hidden!important;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch;scrollbar-color:#ffffff44 transparent;scrollbar-width:thin}
+.chart canvas{width:auto;height:100%;display:block;touch-action:pan-y}.chart::-webkit-scrollbar{height:9px}.chart::-webkit-scrollbar-thumb{background:#ffffff38;border-radius:99px}.chart::-webkit-scrollbar-track{background:#00000022}
+.cap{z-index:3;width:max-content;max-width:240px;white-space:nowrap;padding:5px 7px;border-radius:8px;background:#101214dc}.cap span{display:block}.cap small{display:block;margin:2px 0 0!important;white-space:normal;line-height:1.25}
+.yscale{position:absolute;z-index:3;top:52px;bottom:39px;width:34px;display:flex;flex-direction:column;justify-content:space-between;color:#ffffff78;font-size:10px;text-align:right;pointer-events:none}.yscale b{font-weight:800}
+@media(max-width:800px){.detailbar{align-items:flex-start}.detailactions{width:100%;display:grid;grid-template-columns:1fr 1fr}.detailactions .zooms{grid-column:1/-1;grid-template-columns:repeat(4,1fr)}.detailactions>.btn{width:100%;padding:0 9px}}
+`;
+document.head.appendChild(dailyStyle);
+
+const switches = document.querySelector(".switches");
+if (switches) {
+  const rangeAll = switches.querySelector('[data-range="ALL"]');
+  if (rangeAll) rangeAll.textContent = "All days";
+  switches.insertAdjacentHTML("afterend", `<div class="detailbar"><div class="detailcopy"><b>One column for every calendar day</b><span id="coverage">From account creation through today, including days with zero activity.</span></div><div class="detailactions"><div class="group zooms" id="zooms"><button class="tab" data-zoom="fit">Fit</button><button class="tab" data-zoom="4">4 px</button><button class="tab on" data-zoom="8">8 px</button><button class="tab" data-zoom="14">14 px</button></div><button class="btn" id="firstDay">Account start</button><button class="btn" id="today">Today</button></div></div>`);
+}
+
+const chartCaption = document.querySelector(".cap");
+if (chartCaption) chartCaption.id = "cap";
+const chartElement = document.getElementById("chart");
+if (chartElement && !document.getElementById("yscale")) {
+  document.getElementById("tip").insertAdjacentHTML("beforebegin", '<div class="yscale" id="yscale"><b id="ymax">0</b><span>0</span></div>');
+}
+
+Object.assign(S, { r: "ALL", z: 8, total: 0, incomplete: false, partial: false, scrollToday: true });
+Object.assign(E, {
+  coverage: $("coverage"),
+  zooms: $("zooms"),
+  firstDay: $("firstDay"),
+  today: $("today"),
+  cap: $("cap"),
+  yscale: $("yscale"),
+  ymax: $("ymax")
+});
+
+document.querySelectorAll("[data-range]").forEach(button => button.classList.toggle("on", button.dataset.range === "ALL"));
+
+user = async function(raw) {
+  const u = norm(raw);
+  if (!valid(u)) return toast("Enter a valid GitHub username.", true);
+  S.u = u;
+  S.r = "ALL";
+  S.scrollToday = true;
+  S.total = 0;
+  S.incomplete = false;
+  S.partial = false;
+  E.user.value = u;
+  load(true, "Loading @" + u + "...", 4);
+  try {
+    S.p = await jsonp("/users/" + encodeURIComponent(u));
+    const all = [];
+    for (let page = 1; page <= 10; page += 1) {
+      load(true, "Loading public commit page " + page + " of up to 10...", 8 + page * 8);
+      let data;
+      try {
+        data = await jsonp("/search/commits?q=" + encodeURIComponent("author:" + u) + "&sort=committer-date&order=desc&per_page=100&page=" + page);
+      } catch (error) {
+        if (all.length && (error.status === 403 || error.status === 429)) {
+          S.partial = true;
+          break;
+        }
+        throw error;
+      }
+      if (page === 1) {
+        S.total = Number(data.total_count || 0);
+        S.incomplete = Boolean(data.incomplete_results);
+      }
+      const items = (data.items || []).filter(item => !item.repository?.private);
+      all.push(...items);
+      if (items.length < 100 || all.length >= Math.min(S.total || 1000, 1000)) break;
+    }
+    S.c = uniq(all).sort((a, b) => date(b) - date(a));
+    show();
+    render();
+    location.hash = encodeURIComponent(u);
+    load(false);
+    if (!S.c.length) toast("No public commits were found.", true);
+  } catch (error) {
+    load(false);
+    toast(error.status === 403 ? "GitHub public API limit reached. Try again later." : error.message || "GitHub request failed.", true);
+  }
+};
+
+show = function() {
+  E.home.classList.add("off");
+  E.app.classList.add("on");
+  E.back.hidden = false;
+  E.avatar.src = S.p.avatar_url;
+  E.name.textContent = S.p.name || S.p.login;
+  const created = S.p.created_at ? new Date(S.p.created_at).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" }) : "unknown";
+  E.meta.textContent = fmt(S.p.public_repos) + " public repositories / " + fmt(S.p.followers) + " followers / joined " + created;
+  E.bio.textContent = S.p.bio || "Public commit activity across GitHub.";
+  E.gh.href = S.p.html_url;
+  scrollTo(0, 0);
+};
+
+function dayStart(value) {
+  const d = new Date(value);
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+};
+
+function accountStart() {
+  const created = S.p?.created_at ? dayStart(S.p.created_at) : Math.min(...S.c.map(commit => dayStart(date(commit))), dayStart(Date.now()));
+  const days = { "30D": 30, "90D": 90, "1Y": 365 }[S.r];
+  return days ? Math.max(created, dayStart(Date.now()) - (days - 1) * DAY) : created;
+};
+
+start = function() { return new Date(accountStart()); };
+filtered = function() {
+  const from = accountStart();
+  const through = dayStart(Date.now()) + DAY;
+  return S.c.filter(commit => {
+    const time = +d
