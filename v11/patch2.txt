@@ -1,0 +1,97 @@
+t line = 0; line < 5; line += 1) {
+    const y = padding.t + line * chartHeight / 4;
+    C.beginPath(); C.moveTo(padding.l, y); C.lineTo(width - padding.r, y); C.stroke();
+  }
+  for (let index = 0; index < S.b.length; index += 1) {
+    const bucket = S.b[index], day = new Date(bucket.s), x = padding.l + index * slot;
+    if (slot >= 3 && (day.getUTCDay() === 0 || day.getUTCDay() === 6)) { C.fillStyle = "#ffffff06"; C.fillRect(x, padding.t, slot, chartHeight); }
+    if (day.getUTCDate() === 1) {
+      C.strokeStyle = day.getUTCMonth() === 0 ? "#ffffff35" : "#ffffff1f";
+      C.beginPath(); C.moveTo(x, padding.t); C.lineTo(x, padding.t + chartHeight); C.stroke();
+      if (slot >= 2.2) {
+        C.fillStyle = day.getUTCMonth() === 0 ? "#ffffffb0" : "#ffffff74";
+        C.font = day.getUTCMonth() === 0 ? "bold 10px system-ui" : "10px system-ui";
+        C.textAlign = "left";
+        const label = day.getUTCMonth() === 0 ? String(day.getUTCFullYear()) : day.toLocaleDateString(undefined, { month: "short", timeZone: "UTC" });
+        C.fillText(label, x + 3, height - 14);
+      }
+    }
+    const barX = x + (slot - barWidth) / 2;
+    if (S.m === "lines") {
+      const middle = padding.t + chartHeight * .48;
+      const addedHeight = bucket.a / max * chartHeight * .42;
+      const removedHeight = bucket.d / max * chartHeight * .42;
+      if (bucket.a) { C.fillStyle = "#20b981"; C.fillRect(barX, middle - addedHeight, barWidth, Math.max(1, addedHeight)); }
+      if (bucket.d) { C.fillStyle = "#e76660"; C.fillRect(barX, middle, barWidth, Math.max(1, removedHeight)); }
+      if (bucket.c.length && !bucket.n) { C.strokeStyle = "#ffffff65"; C.strokeRect(barX, middle - 4, Math.max(1, barWidth), 8); }
+    } else {
+      const value = S.m === "commits" ? bucket.c.length : bucket.r.size;
+      if (value) {
+        const barHeight = Math.max(2, value / max * chartHeight * .86);
+        C.fillStyle = S.m === "commits" ? "#20b981" : "#d89b2b";
+        C.fillRect(barX, padding.t + chartHeight - barHeight, barWidth, barHeight);
+      } else if (slot >= 5) {
+        C.fillStyle = "#ffffff12";
+        C.fillRect(barX, padding.t + chartHeight - 1, barWidth, 1);
+      }
+    }
+  }
+  E.ymax.textContent = fmt(max);
+  positionOverlays();
+};
+
+tooltip = function(event) {
+  if (!S.b.length) return;
+  const rect = E.chart.getBoundingClientRect();
+  const point = event.touches?.[0] || event;
+  const viewX = point.clientX - rect.left, viewY = point.clientY - rect.top;
+  const canvasX = viewX + E.chart.scrollLeft;
+  const slot = (E.canvas.clientWidth - 63) / S.b.length;
+  const index = Math.max(0, Math.min(S.b.length - 1, Math.floor((canvasX - 45) / slot)));
+  const bucket = S.b[index];
+  const repositories = [...bucket.r].sort((a, b) => b[1].n - a[1].n).slice(0, 10);
+  const net = bucket.a - bucket.d;
+  const accountDay = Math.floor((bucket.s - dayStart(S.p?.created_at || bucket.s)) / DAY) + 1;
+  const commits = bucket.c.slice(0, 6);
+  E.tip.innerHTML = `<h3>${new Date(bucket.s).toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: "UTC" })}</h3><div class="tg"><span>Account day</span><span>#${fmt(Math.max(1, accountDay))}</span><span>Commits</span><span>${fmt(bucket.c.length)}</span><span>Repositories</span><span>${fmt(bucket.r.size)}</span><span>Lines added</span><span>${bucket.n ? "+" + fmt(bucket.a) : bucket.c.length ? "details not loaded" : "0"}</span><span>Lines removed</span><span>${bucket.n ? "-" + fmt(bucket.d) : bucket.c.length ? "details not loaded" : "0"}</span><span>Net change</span><span>${bucket.n ? (net >= 0 ? "+" : "") + fmt(net) : bucket.c.length ? "details not loaded" : "0"}</span><span>Files changed</span><span>${bucket.n ? fmt(bucket.f) : bucket.c.length ? "details not loaded" : "0"}</span></div>${repositories.length ? `<div class="tr"><b>Repositories</b>${repositories.map(([name, stats]) => `<div><b>${esc(name)}</b><span>${stats.n} commit${stats.n === 1 ? "" : "s"}${stats.a || stats.d ? ` / +${fmt(stats.a)} -${fmt(stats.d)}` : ""}</span></div>`).join("")}</div>` : ""}${commits.length ? `<div class="tr"><b>Commits</b>${commits.map(commit => `<div><b>${esc((commit.commit?.message || "Commit").split("\n")[0])}</b><span>${esc(repo(commit).split("/").pop())}</span></div>`).join("")}</div>` : `<div class="tr">No public commits on this day.</div>`}`;
+  E.tip.classList.add("on");
+  const tooltipWidth = E.tip.offsetWidth, tooltipHeight = E.tip.offsetHeight, margin = 8;
+  let left = viewX + 16;
+  if (left + tooltipWidth > rect.width - margin) left = viewX - tooltipWidth - 16;
+  left = Math.max(margin, Math.min(rect.width - tooltipWidth - margin, left));
+  let top = viewY - tooltipHeight - 16;
+  if (top < margin) top = viewY + 18;
+  if (top + tooltipHeight > rect.height - margin) top = rect.height - tooltipHeight - margin;
+  E.tip.style.left = E.chart.scrollLeft + left + "px";
+  E.tip.style.top = Math.max(margin, top) + "px";
+};
+
+const oldTooltip = E.canvas.onmousemove;
+if (oldTooltip) {
+  E.canvas.removeEventListener("touchstart", oldTooltip);
+  E.canvas.removeEventListener("touchmove", oldTooltip);
+}
+$("ranges").onclick = event => {
+  const button = event.target.closest("[data-range]");
+  if (button) { S.r = button.dataset.range; S.scrollToday = true; render(); }
+};
+E.zooms.onclick = event => {
+  const button = event.target.closest("[data-zoom]");
+  if (!button) return;
+  const ratio = E.chart.scrollWidth > E.chart.clientWidth ? (E.chart.scrollLeft + E.chart.clientWidth / 2) / E.chart.scrollWidth : 1;
+  S.z = button.dataset.zoom === "fit" ? "fit" : Number(button.dataset.zoom);
+  render();
+  requestAnimationFrame(() => { E.chart.scrollLeft = Math.max(0, ratio * E.chart.scrollWidth - E.chart.clientWidth / 2); positionOverlays(); });
+};
+E.firstDay.onclick = () => E.chart.scrollTo({ left: 0, behavior: "smooth" });
+E.today.onclick = () => E.chart.scrollTo({ left: E.chart.scrollWidth, behavior: "smooth" });
+E.canvas.onmousemove = tooltip;
+E.canvas.addEventListener("touchstart", tooltip, { passive: true });
+E.canvas.addEventListener("touchmove", tooltip, { passive: true });
+E.chart.addEventListener("scroll", positionOverlays, { passive: true });
+onresize = () => {
+  const ratio = E.chart.scrollWidth > E.chart.clientWidth ? (E.chart.scrollLeft + E.chart.clientWidth / 2) / E.chart.scrollWidth : 1;
+  resize();
+  E.chart.scrollLeft = Math.max(0, ratio * E.chart.scrollWidth - E.chart.clientWidth / 2);
+  positionOverlays();
+};
