@@ -1,0 +1,19 @@
+const v11Render = render;
+render = function() {
+  v11Render();
+  if (!E.historyDetail) return;
+  const loaded = S.c.length;
+  if (S.fullHistoryLoading) {
+    const percent = S.fullHistoryTotalDays ? Math.floor(S.fullHistoryResolvedDays / S.fullHistoryTotalDays * 100) : 0;
+    E.historyDetail.textContent = "Scanning date windows: " + fmt(loaded) + " unique commits loaded; " + fmt(S.fullHistoryResolvedDays) + " of " + fmt(S.fullHistoryTotalDays) + " account days resolved (" + percent + "%).";
+    E.notice.textContent = "Full-history scan in progress. GitGraphs has completed " + fmt(S.fullHistoryWindows) + " date windows.";
+  } else if (S.fullHistoryComplete) {
+    const reported = S.reportedTotal ? " GitHub initially reported " + fmt(S.reportedTotal) + "." : "";
+    E.historyDetail.textContent = "Loaded " + fmt(loaded) + " unique public searchable commits across " + fmt(S.fullHistoryWindows) + " date windows." + reported;
+    E.notice.textContent = S.fullHistoryTruncatedDays ? fmt(S.fullHistoryTruncatedDays) + " extremely busy day(s) still exceeded 1,000 commits in one day." : "Full-history date scan completed; the old 1,000-result total cap is no longer used.";
+  } else if (S.fullHistoryCancelled) {
+    E.historyDetail.textContent = "Loading stopped with " + fmt(loaded) + " unique commits preserved.";
+    E.notice.textContent = "The timeline is partial because full-history loading was stopped.";
+  }
+};
+
