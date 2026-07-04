@@ -1,0 +1,140 @@
+// GitGraphs V12 full-history commit loader.
+document.title = "GitGraphs V12 Full History";
+const v12Badge = document.querySelector(".badge");
+if (v12Badge) v12Badge.textContent = "V12 ALL COMMITS";
+const v12Footer = document.querySelector(".foot");
+if (v12Footer) v12Footer.textContent = "GitGraphs V12. Full public searchable commit history, divided into daily columns.";
+
+const v12Style = document.createElement("style");
+v12Style.textContent = `
+.fullhistory{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid #14141416}
+.fullcopy{min-width:230px;flex:1}.fullcopy b{display:block;font-size:12px}.fullcopy span{display:block;margin-top:3px;color:var(--m);font-size:11px;line-height:1.4}
+.fullactions{display:flex;gap:7px;flex-wrap:wrap}.fullactions .btn{min-height:36px;font-size:12px;padding:0 12px}
+.scanpulse{display:inline-block;width:7px;height:7px;margin-right:6px;border-radius:50%;background:var(--g);box-shadow:0 0 0 4px #20b98120;vertical-align:1px}
+@media(max-width:800px){.fullactions{width:100%;display:grid;grid-template-columns:1fr 1fr}.fullactions .btn{width:100%}}
+`;
+document.head.appendChild(v12Style);
+
+const v12Detailbar = document.querySelector(".detailbar");
+if (v12Detailbar) {
+  v12Detailbar.insertAdjacentHTML("afterend", `<div class="fullhistory"><div class="fullcopy"><b><i class="scanpulse"></i>Full public commit history</b><span id="historyDetail">The loader divides the account lifetime into date windows so no single GitHub search is limited to its first 1,000 results.</span></div><div class="fullactions"><button class="btn" id="tokenButton" type="button">Use token (faster)</button><button class="btn" id="stopHistory" type="button" hidden>Stop loading</button></div></div>`);
+}
+
+Object.assign(E, {
+  historyDetail: $("historyDetail"),
+  tokenButton: $("tokenButton"),
+  stopHistory: $("stopHistory")
+});
+Object.assign(S, {
+  reportedTotal: 0,
+  fullHistoryLoading: false,
+  fullHistoryComplete: false,
+  fullHistoryCancelled: false,
+  fullHistoryWindows: 0,
+  fullHistoryResolvedDays: 0,
+  fullHistoryTotalDays: 0,
+  fullHistoryTruncatedDays: 0
+});
+
+function v12GetToken() {
+  try { return sessionStorage.getItem("gitgraphsToken") || ""; } catch (error) { return ""; }
+}
+
+function v12SetToken(value) {
+  try {
+    if (value) sessionStorage.setItem("gitgraphsToken", value);
+    else sessionStorage.removeItem("gitgraphsToken");
+  } catch (error) {}
+  E.tokenButton.textContent = value ? "Token active" : "Use token (faster)";
+}
+
+v12SetToken(v12GetToken());
+E.tokenButton.onclick = () => {
+  const current = v12GetToken();
+  const value = prompt(current ? "A token is active. Paste a replacement token, leave blank to remove it, or press Cancel to keep it." : "Optional: paste a GitHub personal access token. It stays in this browser session and is sent only to api.github.com. Leave blank to cancel.", current);
+  if (value === null) return;
+  v12SetToken(value.trim());
+  toast(value.trim() ? "GitHub token enabled for faster full-history loading." : "GitHub token removed.");
+};
+E.stopHistory.onclick = () => {
+  S.fullHistoryCancelled = true;
+  E.historyDetail.textContent = "Stopping after the current GitHub request...";
+};
+
+function v12IsoDay(milliseconds) {
+  return new Date(milliseconds).toISOString().slice(0, 10);
+}
+
+function v12WindowDays(startDay, endDay) {
+  return Math.floor((endDay - startDay) / DAY) + 1;
+}
+
+let v12LastSearchAt = 0;
+async function v12Delay(milliseconds) {
+  if (milliseconds > 0) await new Promise(resolve => setTimeout(resolve, milliseconds));
+}
+
+async function v12AuthenticatedRequest(path) {
+  const token = v12GetToken();
+  if (!token) return jsonp(path);
+  try {
+    const response = await fetch(API + path, {
+      method: "GET",
+      mode: "cors",
+      credentials: "omit",
+      cache: "no-store",
+      headers: {
+        Accept: "application/vnd.github+json",
+        Authorization: "Bearer " + token
+      }
+    });
+    const text = await response.text();
+    let body = null;
+    try { body = text ? JSON.parse(text) : null; }
+    catch (error) { throw new Error("GitHub returned an unreadable response."); }
+    if (!response.ok) {
+      const requestError = new Error(body?.message || ("GitHub returned " + response.status));
+      requestError.status = response.status;
+      requestError.retryAfter = Number(response.headers.get("retry-after") || 0);
+      requestError.resetAt = Number(response.headers.get("x-ratelimit-reset") || 0);
+      throw requestError;
+    }
+    window.gitGraphsWorkingTransport = "authenticated";
+    return body;
+  } catch (error) {
+    if (error.status === 401) {
+      v12SetToken("");
+      toast("That GitHub token was rejected, so GitGraphs switched back to public loading.", true);
+    }
+    if (error.status && error.status !== 403 && error.status !== 429) throw error;
+    return jsonp(path);
+  }
+}
+
+async function v12SearchRequest(path) {
+  const minimumGap = v12GetToken() ? 350 : 6500;
+  const wait = minimumGap - (Date.now() - v12LastSearchAt);
+  if (wait > 0) await v12Delay(wait);
+  let lastError = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (S.fullHistoryCancelled) throw new DOMException("Loading cancelled", "AbortError");
+    try {
+      v12LastSearchAt = Date.now();
+      return await v12AuthenticatedRequest(path);
+    } catch (error) {
+      lastError = error;
+      if (error.name === "AbortError") throw error;
+      if (error.status && error.status !== 403 && error.status !== 429) throw error;
+      const waitSeconds = error.retryAfter || (error.resetAt ? Math.max(1, error.resetAt - Math.floor(Date.now() / 1000)) : (attempt + 1) * 12);
+      E.historyDetail.textContent = "GitHub asked GitGraphs to slow down. Retrying in " + waitSeconds + " seconds; " + fmt(S.c.length) + " commits are already preserved.";
+      await v12Delay(Math.min(waitSeconds, 75) * 1000);
+    }
+  }
+  throw lastError || new Error("GitHub search did not respond.");
+}
+
+function v12SearchPath(username, startDay, endDay, page) {
+  const query = "author:" + username + " committer-date:" + v12IsoDay(startDay) + ".." + v12IsoDay(endDay);
+  return "/search/commits?q=" + encodeURIComponent(query) + "&sort=committer-date&order=asc&per_page=100&page=" + page;
+}
+

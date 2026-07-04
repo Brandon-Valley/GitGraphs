@@ -1,0 +1,93 @@
+user = async function(raw) {
+  const username = norm(raw);
+  if (!valid(username)) return toast("Enter a valid GitHub username.", true);
+  S.u = username;
+  S.r = "ALL";
+  S.scrollToday = true;
+  S.c = [];
+  S.reportedTotal = 0;
+  S.fullHistoryLoading = true;
+  S.fullHistoryComplete = false;
+  S.fullHistoryCancelled = false;
+  S.fullHistoryWindows = 0;
+  S.fullHistoryResolvedDays = 0;
+  S.fullHistoryTruncatedDays = 0;
+  E.user.value = username;
+  E.stopHistory.hidden = false;
+  load(true, "Loading @" + username + " and preparing the full-history scan...", 2);
+
+  try {
+    S.p = await v12AuthenticatedRequest("/users/" + encodeURIComponent(username));
+    const firstDay = dayStart(S.p.created_at || Date.now());
+    const lastDay = dayStart(Date.now());
+    S.fullHistoryTotalDays = v12WindowDays(firstDay, lastDay);
+    show();
+    render();
+
+    const queue = [{ start: firstDay, end: lastDay, first: null, root: true }];
+    const collected = [];
+
+    while (queue.length) {
+      if (S.fullHistoryCancelled) throw new DOMException("Loading cancelled", "AbortError");
+      const windowItem = queue.shift();
+      const startText = v12IsoDay(windowItem.start);
+      const endText = v12IsoDay(windowItem.end);
+      const progress = S.fullHistoryTotalDays ? Math.floor(S.fullHistoryResolvedDays / S.fullHistoryTotalDays * 100) : 0;
+      load(true, "Scanning " + startText + " through " + endText + " — " + fmt(S.c.length) + " commits loaded...", progress);
+
+      const firstPage = windowItem.first || await v12SearchRequest(v12SearchPath(username, windowItem.start, windowItem.end, 1));
+      const count = Number(firstPage.total_count || 0);
+      S.incomplete = S.incomplete || Boolean(firstPage.incomplete_results);
+      if (windowItem.root) S.reportedTotal = count;
+
+      if (count > 1000 && windowItem.start < windowItem.end) {
+        const days = v12WindowDays(windowItem.start, windowItem.end);
+        const leftDays = Math.floor(days / 2);
+        const leftEnd = windowItem.start + (leftDays - 1) * DAY;
+        queue.unshift(
+          { start: leftEnd + DAY, end: windowItem.end, first: null, root: false },
+          { start: windowItem.start, end: leftEnd, first: null, root: false }
+        );
+        E.historyDetail.textContent = "The " + startText + "–" + endText + " window contains " + fmt(count) + " commits, so it was divided into smaller date windows.";
+        continue;
+      }
+
+      const maximum = Math.min(count, 1000);
+      const pages = Math.ceil(maximum / 100);
+      collected.push(...(firstPage.items || []));
+      for (let page = 2; page <= pages; page += 1) {
+        if (S.fullHistoryCancelled) throw new DOMException("Loading cancelled", "AbortError");
+        load(true, "Loading page " + page + " of " + pages + " for " + startText + "–" + endText + "...", progress);
+        const pageData = await v12SearchRequest(v12SearchPath(username, windowItem.start, windowItem.end, page));
+        collected.push(...(pageData.items || []));
+        S.incomplete = S.incomplete || Boolean(pageData.incomplete_results);
+      }
+      if (count > 1000 && windowItem.start === windowItem.end) S.fullHistoryTruncatedDays += 1;
+      S.fullHistoryResolvedDays += v12WindowDays(windowItem.start, windowItem.end);
+      S.fullHistoryWindows += 1;
+      S.c = uniq(collected).sort((a, b) => date(b) - date(a));
+      render();
+    }
+
+    S.fullHistoryLoading = false;
+    S.fullHistoryComplete = true;
+    S.total = S.c.length;
+    render();
+    location.hash = encodeURIComponent(username);
+    load(false);
+    E.stopHistory.hidden = true;
+    toast("Full history loaded: " + fmt(S.c.length) + " unique public commits.");
+  } catch (error) {
+    load(false);
+    S.fullHistoryLoading = false;
+    E.stopHistory.hidden = true;
+    if (error.name === "AbortError") {
+      S.fullHistoryCancelled = true;
+      render();
+      toast("Full-history loading stopped; the commits already loaded were kept.");
+      return;
+    }
+    render();
+    toast(error.status === 403 ? "GitHub rate limit reached. Add a token or try again after the limit resets." : error.message || "GitHub request failed.", true);
+  }
+};
