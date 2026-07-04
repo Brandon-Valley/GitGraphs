@@ -1,0 +1,1 @@
+GitGraphs V9 switches the hosted app from the retired JSONP callback request to GitHub's normal browser CORS API request. Build 9.
