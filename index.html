@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#f4f0e8">
-  <title>GitGraphs V8</title>
+  <title>GitGraphs V9</title>
   <style>
     html,body{margin:0;min-height:100%;font-family:Inter,system-ui,sans-serif;background:#f4f0e8;color:#141414}
     body{display:grid;place-items:center;background:radial-gradient(circle at 18% 5%,#fff,transparent 32rem),linear-gradient(#f4f0e8,#eee8de)}
@@ -19,7 +19,7 @@
 </head>
 <body>
   <main>
-    <h1>GitGraphs <span class="badge">V8</span></h1>
+    <h1>GitGraphs <span class="badge">V9</span></h1>
     <p id="status">Loading the complete app...</p>
     <div class="track"><div class="bar"></div></div>
   </main>
@@ -28,11 +28,22 @@
       "v8/p00.txt","v8/p01.txt","v8/p02.txt","v8/p03.txt","v8/p04.txt","v8/p05.txt","v8/p06.txt","v8/p07.txt",
       "v8/p08a.txt","v8/p08b.txt","v8/p09.txt","v8/p10.txt","v8/p11.txt","v8/p12.txt"
     ];
-    Promise.all(parts.map((url,index)=>fetch(url+"?build=8",{cache:"no-store"}).then(response=>{
-      if(!response.ok) throw new Error("part "+(index+1)+" returned "+response.status);
-      return response.text();
-    }))).then(chunks=>{
-      const html=chunks.join("");
+    Promise.all([
+      Promise.all(parts.map((url,index)=>fetch(url+"?build=9",{cache:"no-store"}).then(response=>{
+        if(!response.ok) throw new Error("part "+(index+1)+" returned "+response.status);
+        return response.text();
+      }))),
+      fetch("v8/network.js.txt?build=9",{cache:"no-store"}).then(response=>{
+        if(!response.ok) throw new Error("network client returned "+response.status);
+        return response.text();
+      })
+    ]).then(results=>{
+      const chunks=results[0];
+      const networkClient=results[1];
+      let html=chunks.join("");
+      const marker="const first=decodeURIComponent";
+      if(!html.includes(marker)) throw new Error("network insertion point was not found");
+      html=html.replace(marker,networkClient+"\njsonp=requestGitHub;\n"+marker);
       if(!html.startsWith("<!doctype html>")||!html.endsWith("</html>\n")) throw new Error("assembled app did not pass its integrity check");
       document.open();
       document.write(html);
