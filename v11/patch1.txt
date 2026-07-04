@@ -1,0 +1,108 @@
+ate(commit);
+    return time >= from && time < through;
+  });
+};
+
+buckets = function() {
+  const from = accountStart();
+  const through = dayStart(Date.now());
+  const count = Math.max(1, Math.floor((through - from) / DAY) + 1);
+  const daily = Array.from({ length: count }, (_, index) => ({ s: from + index * DAY, e: from + (index + 1) * DAY, c: [], r: new Map(), a: 0, d: 0, f: 0, n: 0 }));
+  for (const commit of filtered()) {
+    const index = Math.floor((dayStart(date(commit)) - from) / DAY);
+    if (index < 0 || index >= daily.length) continue;
+    const bucket = daily[index];
+    const repository = repo(commit);
+    bucket.c.push(commit);
+    if (!bucket.r.has(repository)) bucket.r.set(repository, { n: 0, a: 0, d: 0 });
+    const repoStats = bucket.r.get(repository);
+    repoStats.n += 1;
+    if (commit.stats) {
+      bucket.a += commit.stats.a;
+      bucket.d += commit.stats.d;
+      bucket.f += commit.stats.f;
+      bucket.n += 1;
+      repoStats.a += commit.stats.a;
+      repoStats.d += commit.stats.d;
+    }
+  }
+  S.b = daily;
+};
+
+render = function() {
+  buckets();
+  document.querySelectorAll("[data-mode]").forEach(button => button.classList.toggle("on", button.dataset.mode === S.m));
+  document.querySelectorAll("[data-range]").forEach(button => button.classList.toggle("on", button.dataset.range === S.r));
+  document.querySelectorAll("[data-zoom]").forEach(button => button.classList.toggle("on", String(S.z) === button.dataset.zoom || (S.z === "fit" && button.dataset.zoom === "fit")));
+  const explanations = {
+    lines: "Every column is one calendar day. Green is lines added and red is lines removed.",
+    commits: "Every column is one calendar day. Height is the number of commits made that day.",
+    repos: "Every column is one calendar day. Height is the number of distinct repositories changed that day."
+  };
+  E.explain.textContent = explanations[S.m];
+  E.ct.textContent = { lines: "Daily lines added and removed", commits: "Daily commit count", repos: "Daily repositories changed" }[S.m];
+  E.leg.textContent = { lines: "green = added / red = removed / outlined = details not loaded", commits: "green = commits / dark gaps = zero-commit days", repos: "amber = repositories / dark gaps = zero-repository days" }[S.m];
+  const commits = filtered();
+  const repos = new Map();
+  let additions = 0, deletions = 0, known = 0;
+  for (const commit of commits) {
+    repos.set(repo(commit), (repos.get(repo(commit)) || 0) + 1);
+    if (commit.stats) { additions += commit.stats.a; deletions += commit.stats.d; known += 1; }
+  }
+  $("mc").textContent = fmt(commits.length);
+  $("mr").textContent = fmt(repos.size);
+  $("ma").textContent = known ? fmt(additions) : "-";
+  $("md").textContent = known ? fmt(deletions) : "-";
+  $("my").textContent = fmt(new Set(commits.map(commit => date(commit).toISOString().slice(0, 10))).size);
+  $("ms").textContent = fmt(streak(commits));
+  const created = new Date(accountStart()).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  const today = new Date().toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  E.coverage.textContent = fmt(S.b.length) + " individual days from " + created + " through " + today + ". Scroll horizontally; empty days are kept.";
+  E.summary.textContent = fmt(S.b.length) + " calendar days / " + fmt(commits.length) + " loaded commits / " + fmt(repos.size) + " repositories";
+  const coverage = S.total > 1000 ? "GitHub search reports " + fmt(S.total) + " commits; the public search API exposes at most 1,000." : S.total > 0 && S.c.length < S.total ? "Loaded " + fmt(S.c.length) + " of " + fmt(S.total) + " search results." : "Loaded " + fmt(S.c.length) + " public commits.";
+  E.notice.textContent = coverage + (S.partial ? " Loading stopped at an API limit." : S.incomplete ? " GitHub marked the search incomplete." : "") + " " + fmt(known) + " commits have exact line details.";
+  $("rr").textContent = S.r === "ALL" ? "Account lifetime" : S.r;
+  E.cl.innerHTML = commits.slice(0, 13).map(commit => `<li class="row"><a href="${esc(commit.html_url)}" target="_blank" rel="noopener"><div class="msg">${esc((commit.commit?.message || "Commit").split("\n")[0])}</div><div class="sub"><span>${esc(repo(commit))}</span><span>${esc(commit.sha.slice(0, 7))}</span><span>${date(commit).toLocaleDateString()}</span></div></a></li>`).join("") || '<li class="row">No commits in this range.</li>';
+  const top = [...repos].sort((a, b) => b[1] - a[1]).slice(0, 15);
+  const maxRepo = top[0]?.[1] || 1;
+  E.rl.innerHTML = top.map(([repository, count]) => `<li class="row"><div class="repo"><b>${esc(repository)}</b><span>${fmt(count)}</span></div><div class="bar"><i style="width:${count / maxRepo * 100}%"></i></div></li>`).join("") || '<li class="row">No repositories.</li>';
+  resize();
+  requestAnimationFrame(() => {
+    if (S.scrollToday) { E.chart.scrollLeft = E.chart.scrollWidth; S.scrollToday = false; }
+    positionOverlays();
+  });
+};
+
+function positionOverlays() {
+  E.cap.style.left = E.chart.scrollLeft + 14 + "px";
+  E.yscale.style.left = Math.max(E.chart.scrollLeft + 8, E.chart.scrollLeft + E.chart.clientWidth - 46) + "px";
+};
+
+resize = function() {
+  const viewport = E.chart.clientWidth;
+  const density = Math.min(devicePixelRatio || 1, 2);
+  const days = Math.max(1, S.b.length);
+  const pixelsPerDay = S.z === "fit" ? Math.max(.05, (viewport - 63) / days) : Number(S.z || 8);
+  const cssWidth = Math.max(viewport, Math.ceil(63 + days * pixelsPerDay));
+  E.canvas.style.width = cssWidth + "px";
+  E.canvas.style.height = E.chart.clientHeight + "px";
+  E.canvas.width = Math.round(cssWidth * density);
+  E.canvas.height = Math.round(E.chart.clientHeight * density);
+  C.setTransform(density, 0, 0, density, 0, 0);
+  draw();
+};
+
+draw = function() {
+  const width = E.canvas.clientWidth, height = E.canvas.clientHeight;
+  const padding = { l: 45, r: 18, t: 52, b: 39 };
+  const chartWidth = width - padding.l - padding.r, chartHeight = height - padding.t - padding.b;
+  C.fillStyle = "#101214";
+  C.fillRect(0, 0, width, height);
+  if (!S.b.length) return;
+  const slot = chartWidth / S.b.length;
+  const barWidth = Math.max(1, Math.min(18, slot * .72));
+  const values = S.b.map(bucket => S.m === "commits" ? bucket.c.length : S.m === "repos" ? bucket.r.size : Math.max(bucket.a, bucket.d));
+  const max = Math.max(1, ...values);
+  C.strokeStyle = "#ffffff16";
+  C.lineWidth = 1;
+  for (le
